@@ -1,0 +1,118 @@
+# Seed specification — 개인화 애니메이션 작품 추천
+# Generated from interview (Path B, no Ouroboros MCP). Immutable constitution for implementation.
+
+goal: >-
+  LangGraph의 ReAct 패턴으로 웹 검색 등 도구를 사용하고, 장르·분위기에 따른 분기가 있는
+  워크플로우를 구성한 뒤, Streamlit으로 개인화 애니메이션 추천(기본 3작, 옵션으로 0~2작 추가·합계 최대 5작,
+  설명은 한국어)을 제공한다.
+
+constraints:
+  - LLM은 OpenAI gpt-5-mini 고정; temperature/top_p 등 미지원 샘플링 파라미터 사용 금지
+  - 임베딩이 필요하면 text-embedding-3-small
+  - UI는 Streamlit; 추천 결과가 메인이고 실행 단계(도구 호출·요약)는 접었다 펼칠 수 있게
+  - 추천 개수: 기본 3작; 사용자 옵션으로 0~2작 추가 가능(합계 최소 3, 최대 5)
+  - 사용자 입력은 하이브리드(간단 폼 + 자유 텍스트)
+  - 그래프 분기의 1차 축은 장르(genre)와 분위기/테마(mood)로 설계
+  - 최종 사용자에게 보이는 추천·근거 텍스트에서 중요 스포일러 회피(중간 디버그/도구 로그는 상대적으로 완화 가능)
+  - 일본 방송·판권·지역 라이선스 등 법적 세부는 다루지 않음
+  - 검색 백엔드는 구현 단계에서 교체 가능한 인터페이스로 두되, 인터뷰 선호는 Tavily 계열(LLM 친화 검색)
+
+non_goals:
+  - 사용자 계정·로그인·장기 저장(명시적 요구 없음)
+  - 파인튜닝·로컬 오픈소스 LLM(명시적 요구 없음)
+
+acceptance_criteria:
+  - Streamlit에서 취향 입력(폼+자유 텍스트) 후 실행 시 추천 목록이 최소 3개·최대 5개로 표시된다(기본 3, 옵션으로 0~2작 추가)
+  - 각 추천에 대해 한국어로 짧은 근거가 있으며, 최종 문구에 중요 스포일러가 없다
+  - LangGraph 그래프가 ReAct(도구 호출 루프)를 포함하고, 장르·분위기에 따른 분기(조건부 라우팅 또는 동등한 구조)가 존재한다
+  - 도구 호출·중간 단계가 접기/펼치기 UI로 확인 가능하다
+  - 웹 검색(또는 동등한 정보 보강)이 추천 근거에 실제로 활용된다
+
+ontology_schema:
+  name: PersonalizedAnimeRecommendation
+  description: 사용자 취향과 추천 결과를 담는 도메인 모델
+  fields:
+    - name: user_profile
+      type: object
+      description: 폼·자유 텍스트에서 추출·정리된 취향(장르, 분위기, 기타 제약)
+    - name: branch_state
+      type: object
+      description: 분기 결정에 쓰인 장르·분위기 라벨 및 라우팅 결과
+    - name: tool_trace
+      type: array
+      description: ReAct 단계별 도구 이름, 입력, 요약 결과(스포일러 정책은 최종 출력에 엄격)
+    - name: recommendations
+      type: array
+      description: >-
+        3~5작의 작품 식별자·제목·한국어 근거(스포일러 없음). 기본 3작 후 옵션 추가분 0~2작.
+    - name: extra_recommendation_slots
+      type: number
+      description: 사용자가 선택한 추가 추천 개수(0, 1, 2 중 하나; 기본 0 → 합계 3작)
+
+evaluation_principles:
+  - name: personalization_fit
+    description: 사용자가 준 장르·분위기와 추천이 얼마나 잘 맞는가
+    weight: 0.35
+  - name: grounding
+    description: 검색·메타데이터로 근거가 뒷받침되는가(환각 최소화)
+    weight: 0.25
+  - name: spoiler_safety_final
+    description: 최종 사용자 대면 텍스트에 중요 스포일러가 없는가
+    weight: 0.25
+  - name: ux_clarity
+    description: Streamlit에서 최종 결과가 명확하고 단계 UI가 혼란스럽지 않은가
+    weight: 0.15
+
+exit_conditions:
+  - name: recommendations_ready
+    description: 3~5작 추천과 한국어 근거가 생성됨(기본 3 + 옵션 추가 0~2)
+    criteria: >-
+      3 <= recommendations.length <= 5; 각 항목에 title 및 rationale_ko 존재;
+      recommendations.length == 3 + extra_recommendation_slots
+  - name: user_stop
+    description: 사용자가 세션을 종료
+    criteria: Streamlit 세션 종료 또는 사용자 취소
+
+brownfield_context:
+  project_type: brownfield
+  context_references:
+    - path: notebooks/notebooks/03_react_agent.ipynb
+      role: reference
+      summary: LangGraph ReAct 패턴 참고
+    - path: notebooks/notebooks/04_multi_agent.ipynb
+      role: reference
+      summary: 멀티 에이전트·분기 패턴 참고
+    - path: notebooks/notebooks/02_langgraph_basics.ipynb
+      role: reference
+      summary: LangGraph 기본 그래프 구성 참고
+  existing_patterns:
+    - 노트북과 동일 스택(Python, langchain/langgraph)으로 앱 코드 구성 권장
+  existing_dependencies:
+    - streamlit
+    - langchain-openai
+    - langgraph
+
+# 무료·저비용 API 권장 (인터뷰의 Tavily 선호와 병행·대체 가능)
+recommended_free_apis:
+  - name: AniList GraphQL API
+    url: https://anilist.gitbook.io/anilist-apiv2-docs/
+    notes: >-
+      공개 쿼리에 API 키 불필요. 장르·태그·점수·제목으로 후보 작품 메타데이터 보강에 적합.
+  - name: Jikan API (MyAnimeList 비공식)
+    url: https://docs.api.jikan.moe/
+    notes: >-
+      무료, Rate limit 있음. 작품 검색·상세로 근거 보강 가능.
+  - name: DuckDuckGo 검색 (LangChain 커뮤니티 등)
+    notes: >-
+      API 키 없이 MVP 검색에 자주 사용. Tavily 대신 또는 폴백으로 검색 도구 구현 가능.
+  - name: Tavily
+    notes: >-
+      인터뷰 선호. 무료 크레딧/티어가 있으나 완전 무료는 아님; 키 발급 시 LLM 친화 요약에 유리.
+
+metadata:
+  seed_version: "1.1"
+  topic: 개인화 애니메이션 작품 추천
+  ambiguity_score: 0.12
+  interview_summary: >-
+    맞춤 추천(기본 3작·옵션 0~2작 추가로 최대 5작, 한국어), 하이브리드 입력, 장르·분위기 분기, ReAct+웹검색,
+    Streamlit 접기/펼치기 단계, 최종 텍스트만 스포일러 회피, 법·판권 세부 비목표.

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>개인화 애니 추천 — seed.yaml v1.1 구현 보고서</title>
+  <style>
+    :root {
+      --bg: #f7f5f2;
+      --card: #fff;
+      --text: #1a1a1a;
+      --muted: #5c5c5c;
+      --accent: #2563eb;
+      --border: #e5e2dc;
+      --code-bg: #f0eeea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 16px;
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 650;
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    h2 {
+      font-size: 1.2rem;
+      margin: 2.25rem 0 0.75rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 2px solid var(--border);
+    }
+    h3 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
+    p { margin: 0.65rem 0; }
+    ul { margin: 0.5rem 0 1rem; padding-left: 1.35rem; }
+    li { margin: 0.35rem 0; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.1rem 1.25rem;
+      margin: 1rem 0;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      background: var(--code-bg);
+      color: var(--muted);
+      margin-right: 0.35rem;
+    }
+    .tag.free { background: #dcfce7; color: #166534; }
+    .tag.paid { background: #fef3c7; color: #92400e; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 0.75rem 0;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.65rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--code-bg); font-weight: 600; }
+    code {
+      font-family: ui-monospace, monospace;
+      font-size: 0.88em;
+      background: var(--code-bg);
+      padding: 0.12rem 0.35rem;
+      border-radius: 4px;
+    }
+    .mermaid {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    a { color: var(--accent); }
+    .note {
+      font-size: 0.9rem;
+      color: var(--muted);
+      border-left: 3px solid var(--accent);
+      padding-left: 0.85rem;
+      margin: 1rem 0;
+    }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>개인화 애니메이션 작품 추천 — 구현 정리 보고서</h1>
+    <p class="meta">
+      근거 문서: <code>seed.yaml</code> · <strong>seed_version 1.1</strong> ·
+      추천 개수: 기본 3작 + 옵션 0~2작(합계 3~5작)
+    </p>
+
+    <h2>1. 사용할 외부 API (무료·저비용 위주)</h2>
+    <p>
+      <code>seed.yaml</code>의 <code>recommended_free_apis</code>와 제약을 반영했습니다.
+      검색 백엔드는 <strong>교체 가능한 인터페이스</strong>로 두고, 무료 API를 우선 연동하는 구성을 권장합니다.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>API</th>
+          <th>비용·인증</th>
+          <th>역할</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>AniList GraphQL</strong><br /><a href="https://anilist.gitbook.io/anilist-apiv2-docs/">문서</a></td>
+          <td><span class="tag free">무료</span> 공개 쿼리 시 API 키 불필요</td>
+          <td>장르·태그·점수·제목 등 <strong>메타데이터·후보 작품 풀</strong> 보강, 추천 근거의 구조화에 유리</td>
+        </tr>
+        <tr>
+          <td><strong>Jikan</strong> (MyAnimeList 비공식)<br /><a href="https://docs.api.jikan.moe/">문서</a></td>
+          <td><span class="tag free">무료</span> Rate limit 존재</td>
+          <td>작품 검색·상세 조회로 <strong>검색 근거</strong> 보강 (AniList와 상호 검증 가능)</td>
+        </tr>
+        <tr>
+          <td><strong>DuckDuckGo 검색</strong> (LangChain 커뮤니티 래퍼 등)</td>
+          <td><span class="tag free">무료</span> API 키 없이 MVP에 자주 사용</td>
+          <td><strong>웹 검색</strong> 도구의 기본 구현 또는 Tavily 폴백</td>
+        </tr>
+        <tr>
+          <td><strong>OpenAI API</strong></td>
+          <td><span class="tag paid">유료</span> (프로젝트 제약상 필수)</td>
+          <td>챗 모델 <code>gpt-5-mini</code>, 필요 시 임베딩 <code>text-embedding-3-small</code>. temperature/top_p 미사용</td>
+        </tr>
+        <tr>
+          <td><strong>Tavily</strong></td>
+          <td><span class="tag paid">저비용·크레딧</span> (완전 무료 아님)</td>
+          <td>인터뷰 선호: <strong>LLM 친화 검색</strong>. 키가 있으면 DuckDuckGo 대신 또는 병행</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">
+      우선순위 제안: <strong>AniList + Jikan + DuckDuckGo</strong>로 비용을 최소화하고, 검색 품질이 부족할 때만 Tavily를 추가합니다.
+    </p>
+
+    <h2>2. 실제 구현할 Tool 리스트</h2>
+    <p>
+      ReAct 루프에 바인딩할 도구를 역할 단위로 정리했습니다.
+      최종 추천 개수는 <strong><code>3 + extra_recommendation_slots</code></strong>(0~2)이므로,
+      <code>finalize</code> 단계의 프롬프트·검증에 <code>extra_recommendation_slots</code>를 반드시 전달합니다.
+    </p>
+
+    <div class="card">
+      <h3>필수·권장 Tool</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>도구 이름 (예시)</th>
+            <th>기능</th>
+            <th>연동 대상</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>web_search</code></td>
+            <td>일반 웹 검색 쿼리 실행, 스니펫·URL 반환</td>
+            <td>DuckDuckGo (기본) / Tavily (선택)</td>
+          </tr>
+          <tr>
+            <td><code>anilist_search</code></td>
+            <td>키워드·장르·연도 등으로 애니 후보 검색, 점수·태그 요약</td>
+            <td>AniList GraphQL</td>
+          </tr>
+          <tr>
+            <td><code>anime_lookup_jikan</code></td>
+            <td>제목으로 MAL 기반 상세(에피소드·장르·점수 등) 조회</td>
+            <td>Jikan API</td>
+          </tr>
+          <tr>
+            <td><code>finalize_recommendations_ko</code> (그래프 노드)</td>
+            <td>
+              수집 정보를 바탕으로 <strong>정확히 <code>3 + extra_recommendation_slots</code>개</strong>의 항목 생성,
+              한국어 근거 작성, <strong>스포일러 회피</strong> (최종 사용자 대면 텍스트에만 엄격)
+            </td>
+            <td>gpt-5-mini (도구가 아닌 후처리 노드 권장)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-bottom:0;">
+        ReAct에 직접 노출하는 것은 보통 <code>web_search</code>, <code>anilist_search</code>, <code>anime_lookup_jikan</code>이며,
+        개수·스포일러 정책은 <strong>finalize</strong> 노드에서 일괄 적용하는 편이 <code>seed.yaml</code>과 잘 맞습니다.
+      </p>
+    </div>
+
+    <h2>3. LangGraph 워크플로우 시각화</h2>
+    <p>
+      전체 흐름(입력·추가 슬롯·분기·ReAct·최종 출력)과 ReAct 내부 루프를 표현했습니다.
+      브라우저에서 Mermaid가 보이지 않으면 <a href="https://mermaid.live">mermaid.live</a>에 코드를 붙여 넣어 확인할 수 있습니다.
+    </p>
+
+    <h3>3.1 상위 그래프 (추가 추천 옵션 + 장르·분위기 분기 + ReAct)</h3>
+    <div class="mermaid">
+flowchart TB
+  START([시작]) --> UI_OPT[UI: extra_recommendation_slots 선택 0/1/2]
+  UI_OPT --> INGEST[ingest: 폼+자유텍스트 수집]
+  INGEST --> PARSE[parse_profile: 장르·분위기·기타 추출]
+  PARSE --> ROUTER{route_by_genre_mood}
+  ROUTER -->|예: 액션 계열| SG_A[프롬프트/가중치 A]
+  ROUTER -->|예: 일상·힐링| SG_B[프롬프트/가중치 B]
+  ROUTER -->|기본| SG_DEF[프롬프트 기본]
+  SG_A --> REACT[ReAct 에이전트 서브그래프]
+  SG_B --> REACT
+  SG_DEF --> REACT
+  REACT --> FINALIZE["finalize: 3+N작·한국어·스포일러 없음 (N=extra_recommendation_slots)"]
+  FINALIZE --> STREAMLIT[Streamlit: 결과 + 단계 접기/펼치기]
+  STREAMLIT --> END([종료])
+    </div>
+
+    <h3>3.2 ReAct 서브그래프 (도구 루프)</h3>
+    <div class="mermaid">
+flowchart LR
+  AGENT[에이전트 노드: gpt-5-mini] --> DECIDE{도구 호출?}
+  DECIDE -->|예| TOOLS[도구 실행: web_search / anilist / jikan]
+  TOOLS --> AGENT
+  DECIDE -->|아니오| OUT[상태에 검색 요약·후보 누적]
+    </div>
+
+    <h3>3.3 온톨로지 필드 흐름 (<code>ontology_schema</code>)</h3>
+    <div class="mermaid">
+flowchart TD
+  UP[user_profile] --> BS[branch_state]
+  XS[extra_recommendation_slots] --> FINAL[recommendations 길이 3+N]
+  BS --> TT[tool_trace]
+  TT --> FINAL
+    </div>
+
+    <h2>4. 그 외 요구사항 정리</h2>
+
+    <h3>4.1 목표·제약 (v1.1 반영)</h3>
+    <ul>
+      <li><strong>목표</strong>: ReAct + 도구 + 장르·분위기 분기가 있는 LangGraph 워크플로우를 Streamlit으로 제공.</li>
+      <li><strong>추천 개수</strong>: <strong>기본 3작</strong>, 사용자 옵션으로 <strong>0~2작 추가</strong> → 합계 <strong>최소 3, 최대 5</strong>. 상태 필드 <code>extra_recommendation_slots ∈ {0,1,2}</code>.</li>
+      <li><strong>LLM</strong>: <code>gpt-5-mini</code> 고정. temperature/top_p 등 미사용.</li>
+      <li><strong>UI</strong>: 최종 추천이 메인; 도구 호출·중간 단계는 접었다 펼치기.</li>
+      <li><strong>입력</strong>: 하이브리드(간단 폼 + 자유 텍스트).</li>
+      <li><strong>스포일러</strong>: 최종 사용자 대면 추천·근거에서 중요 스포일러 회피. 중간 로그는 상대적으로 완화 가능.</li>
+      <li><strong>비범위</strong>: 방송·판권·지역 라이선스 등 법적 세부 미포함.</li>
+      <li><strong>검색</strong>: 백엔드 교체 가능; 선호는 Tavily 계열.</li>
+    </ul>
+
+    <h3>4.2 비목표 (non_goals)</h3>
+    <ul>
+      <li>사용자 계정·로그인·장기 저장(명시적 요구 없음).</li>
+      <li>파인튜닝·로컬 오픈소스 LLM(명시적 요구 없음).</li>
+    </ul>
+
+    <h3>4.3 수용 기준 (acceptance_criteria)</h3>
+    <ul>
+      <li>추천 목록이 <strong>최소 3개·최대 5개</strong>로 표시된다(기본 3, 옵션 0~2작 추가).</li>
+      <li>각 추천에 한국어 근거가 있고, 최종 문구에 중요 스포일러가 없다.</li>
+      <li>그래프에 ReAct(도구 루프)와 장르·분위기 분기가 존재한다.</li>
+      <li>도구 호출·중간 단계가 접기/펼치기로 확인 가능하다.</li>
+      <li>웹 검색 또는 동등한 정보 보강이 근거에 반영된다.</li>
+    </ul>
+
+    <h3>4.4 종료 조건 (exit_conditions)</h3>
+    <ul>
+      <li>
+        <strong>recommendations_ready</strong>:
+        <code>3 ≤ recommendations.length ≤ 5</code>,
+        각 항목에 <code>title</code>, <code>rationale_ko</code>,
+        <code>recommendations.length == 3 + extra_recommendation_slots</code>.
+      </li>
+      <li><strong>user_stop</strong>: Streamlit 세션 종료 또는 사용자 취소.</li>
+    </ul>
+
+    <h3>4.5 품질 평가 가중치 (evaluation_principles)</h3>
+    <table>
+      <thead>
+        <tr><th>원칙</th><th>가중치</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>personalization_fit</td><td>0.35</td></tr>
+        <tr><td>grounding</td><td>0.25</td></tr>
+        <tr><td>spoiler_safety_final</td><td>0.25</td></tr>
+        <tr><td>ux_clarity</td><td>0.15</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.6 브라운필드 참고</h3>
+    <ul>
+      <li><code>notebooks/notebooks/02_langgraph_basics.ipynb</code> — LangGraph 기본</li>
+      <li><code>notebooks/notebooks/03_react_agent.ipynb</code> — ReAct</li>
+      <li><code>notebooks/notebooks/04_multi_agent.ipynb</code> — 멀티 에이전트·분기</li>
+    </ul>
+
+    <footer>
+      본 HTML은 <code>seed.yaml</code> <strong>v1.1</strong>을 토대로 새로 작성되었습니다.
+      파일: <code>reports/seed_report_v1.1.html</code>
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "neutral",
+      flowchart: { curve: "basis", padding: 12 }
+    });
+  </script>
+</body>
+</html>
