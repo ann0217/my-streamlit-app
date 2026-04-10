@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
+from anilist_client import search_first_media_id
 from anime_tools import ANIME_TOOLS
 from secrets_util import require_openai_api_key
 
@@ -216,6 +217,28 @@ def run_react(state: GraphState) -> GraphState:
     return {"react_messages": msgs, "tool_trace": trace}
 
 
+def _enrich_missing_anilist_ids(recs: list[dict]) -> list[dict]:
+    """anilist_id가 비어 있으면 제목으로 AniList 검색해 id 보강."""
+    out: list[dict] = []
+    for r in recs:
+        aid = r.get("anilist_id")
+        ok = False
+        if aid is not None:
+            try:
+                ok = int(aid) > 0
+            except (TypeError, ValueError):
+                ok = False
+        if ok:
+            out.append(r)
+            continue
+        tid = search_first_media_id((r.get("title") or "").strip())
+        if tid is not None:
+            out.append({**r, "anilist_id": tid})
+        else:
+            out.append(r)
+    return out
+
+
 def finalize(state: GraphState) -> GraphState:
     n = state["user_profile"]["total_count"]
     react_text = _last_substantial_ai_text(state.get("react_messages") or [])
@@ -225,7 +248,8 @@ def finalize(state: GraphState) -> GraphState:
     sys_msg = f"""당신은 최종 추천 편집자입니다.
 조사 결과를 바탕으로 정확히 {n}개의 작품만 추천 목록에 넣으세요.
 rationale_ko에는 주요 반전·결말 등 스포일러를 쓰지 마세요.
-일본 방송·판권 등 법적 논의는 하지 마세요."""
+일본 방송·판권 등 법적 논의는 하지 마세요.
+가능한 한 각 항목에 anilist_id(AniList의 작품 숫자 id)를 채우세요. 조사 요약에 'id=숫자' 또는 AniList 도구 결과가 있으면 그 id를 사용합니다. 정말 알 수 없을 때만 null입니다."""
 
     human = f"""사용자 프로필(JSON): {json.dumps(state['user_profile'], ensure_ascii=False)}
 
@@ -260,7 +284,8 @@ rationale_ko에는 주요 반전·결말 등 스포일러를 쓰지 마세요.
                 "anilist_id": None,
             }
         )
-    return {"recommendations": recs[:n]}
+    recs = _enrich_missing_anilist_ids(recs[:n])
+    return {"recommendations": recs}
 
 
 def build_graph():

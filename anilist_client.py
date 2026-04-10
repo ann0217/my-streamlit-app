@@ -144,6 +144,31 @@ def _pick_cover_url(cover: dict[str, Any] | None) -> str | None:
     )
 
 
+def search_first_media_id(query: str) -> int | None:
+    """
+    제목/키워드 검색의 첫 번째 결과 Media id.
+    추천 JSON에 anilist_id가 비어 있을 때 포스터·링크 보강용.
+    """
+    q = (query or "").strip()
+    if len(q) < 2:
+        return None
+    try:
+        data = search_anime(q, page=1, per_page=5)
+    except (AniListError, httpx.HTTPError, ValueError):
+        return None
+    page = data.get("Page") or {}
+    media_list = page.get("media") or []
+    if not media_list:
+        return None
+    mid = media_list[0].get("id")
+    if mid is None:
+        return None
+    try:
+        return int(mid)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_cover_urls_by_ids(media_ids: list[int]) -> dict[int, str]:
     """
     AniList id 여러 개에 대해 포스터 이미지 URL을 한 번에 조회.

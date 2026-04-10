@@ -21,7 +21,7 @@ if _ROOT not in sys.path:
 import pandas as pd
 import streamlit as st
 
-from anilist_client import fetch_cover_urls_by_ids
+from anilist_client import fetch_cover_urls_by_ids, search_first_media_id
 from anime_graph import react_summary_text, run_pipeline
 
 
@@ -33,18 +33,34 @@ def _cached_poster_urls(ids_tuple: tuple[int, ...]) -> dict[int, str]:
     return fetch_cover_urls_by_ids(list(ids_tuple))
 
 
-def _collect_anilist_ids(recs: list[dict]) -> tuple[int, ...]:
-    out: list[int] = []
-    for r in recs:
-        aid = r.get("anilist_id")
-        if aid is None:
-            continue
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cached_search_first_id(title: str) -> int | None:
+    """제목 → 첫 검색 결과 id (그래프에서 id를 못 채운 경우 UI 폴백)."""
+    t = (title or "").strip()
+    if len(t) < 2:
+        return None
+    return search_first_media_id(t)
+
+
+def _effective_anilist_id(rec: dict) -> int | None:
+    """추천 항목에서 포스터·링크용 AniList id."""
+    aid = rec.get("anilist_id")
+    if aid is not None:
         try:
             i = int(aid)
             if i > 0:
-                out.append(i)
+                return i
         except (TypeError, ValueError):
-            continue
+            pass
+    return _cached_search_first_id(rec.get("title") or "")
+
+
+def _collect_anilist_ids(recs: list[dict]) -> tuple[int, ...]:
+    out: list[int] = []
+    for r in recs:
+        eid = _effective_anilist_id(r)
+        if eid is not None and eid > 0:
+            out.append(eid)
     return tuple(sorted(set(out)))
 
 
@@ -66,13 +82,8 @@ def _render_recommendation_cards(recs: list[dict]) -> None:
             with col:
                 with st.container(border=True):
                     title = r.get("title") or "(제목 없음)"
-                    aid = r.get("anilist_id")
-                    poster: str | None = None
-                    if aid is not None:
-                        try:
-                            poster = url_map.get(int(aid))
-                        except (TypeError, ValueError):
-                            poster = None
+                    eff_id = _effective_anilist_id(r)
+                    poster: str | None = url_map.get(eff_id) if eff_id else None
 
                     img_col, txt_col = st.columns([1, 1.35])
                     with img_col:
@@ -80,17 +91,17 @@ def _render_recommendation_cards(recs: list[dict]) -> None:
                             st.image(poster, use_container_width=True)
                         else:
                             st.caption(
-                                "포스터 없음 (AniList id 없음)"
-                                if aid is None
-                                else "포스터 없음 (조회 실패)"
+                                "포스터 없음 (제목 검색으로도 id를 찾지 못함)"
+                                if eff_id is None
+                                else "포스터 없음 (AniList 응답에 이미지 없음)"
                             )
                     with txt_col:
                         st.markdown(f"**{idx}. {title}**")
                         st.write(r.get("rationale_ko", ""))
-                        if aid:
+                        if eff_id:
                             st.link_button(
                                 "AniList에서 보기",
-                                f"https://anilist.co/anime/{aid}",
+                                f"https://anilist.co/anime/{eff_id}",
                                 use_container_width=True,
                             )
 
