@@ -25,6 +25,24 @@ from anilist_client import fetch_cover_urls_by_ids, search_media_id_by_title_can
 from anime_graph import react_summary_text, run_pipeline
 
 
+def format_recommendation_heading(rec: dict) -> str:
+    """정식 한글명 + 괄호 안 일본어 원제·영문 병기."""
+    ko = (rec.get("title_korean_official") or rec.get("title") or "").strip()
+    if not ko:
+        ko = "(제목 없음)"
+    native = (rec.get("title_native") or "").strip()
+    eng = (rec.get("title_english") or "").strip()
+    if native and eng:
+        sub = f"{native} / {eng}"
+    elif native:
+        sub = native
+    elif eng:
+        sub = eng
+    else:
+        return ko
+    return f"{ko} ({sub})"
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def _cached_poster_urls(ids_tuple: tuple[int, ...]) -> dict[int, str]:
     """AniList 배치 조회 결과 캐시(동일 id 재방문 시 API 호출 감소)."""
@@ -56,7 +74,7 @@ def _effective_anilist_id(rec: dict) -> int | None:
             pass
     return _cached_resolve_media_id(
         (
-            rec.get("title") or "",
+            rec.get("title_korean_official") or rec.get("title") or "",
             rec.get("title_native") or "",
             rec.get("title_english") or "",
         )
@@ -89,7 +107,7 @@ def _render_recommendation_cards(recs: list[dict]) -> None:
         for col, r, idx in zip(cols, chunk, range(row_start + 1, row_start + 1 + len(chunk))):
             with col:
                 with st.container(border=True):
-                    title = r.get("title") or "(제목 없음)"
+                    heading = format_recommendation_heading(r)
                     eff_id = _effective_anilist_id(r)
                     poster: str | None = url_map.get(eff_id) if eff_id else None
 
@@ -104,7 +122,7 @@ def _render_recommendation_cards(recs: list[dict]) -> None:
                                 else "포스터 없음 (AniList 응답에 이미지 없음)"
                             )
                     with txt_col:
-                        st.markdown(f"**{idx}. {title}**")
+                        st.markdown(f"**{idx}. {heading}**")
                         st.write(r.get("rationale_ko", ""))
                         if eff_id:
                             st.link_button(

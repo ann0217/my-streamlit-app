@@ -19,16 +19,18 @@ from secrets_util import require_openai_api_key
 
 
 class RecItem(BaseModel):
-    title: str = Field(description="작품 제목(표시용, 한국어 설명과 함께 쓸 수 있음)")
+    title_korean_official: str = Field(
+        description="국내 정식 한국어 제목(정발·수입사·공식 등재 등 널리 쓰이는 표기)",
+    )
     rationale_ko: str = Field(description="한국어 추천 근거, 스포일러 금지")
     anilist_id: int | None = Field(default=None, description="알 수 있으면 AniList id")
     title_native: str | None = Field(
         default=None,
-        description="일본어 원제(native 제목). AniList 검색 1순위",
+        description="일본어 원제(native). 화면에는 괄호 안에 병기. AniList 검색 1순위",
     )
     title_english: str | None = Field(
         default=None,
-        description="공식 영문 제목(AniList english/romaji에 가까운 표기). 검색 2순위",
+        description="공식 영문 제목. 화면에는 원제와 함께 괄호 안 병기 가능. 검색 2순위",
     )
 
 
@@ -240,7 +242,7 @@ def _enrich_missing_anilist_ids(recs: list[dict]) -> list[dict]:
             out.append(r)
             continue
         tid = search_media_id_by_title_candidates(
-            title=r.get("title") or "",
+            title=r.get("title_korean_official") or r.get("title") or "",
             title_native=r.get("title_native"),
             title_english=r.get("title_english"),
         )
@@ -262,7 +264,8 @@ def finalize(state: GraphState) -> GraphState:
 rationale_ko에는 주요 반전·결말 등 스포일러를 쓰지 마세요.
 일본 방송·판권 등 법적 논의는 하지 마세요.
 가능한 한 각 항목에 anilist_id(AniList의 작품 숫자 id)를 채우세요. 조사 요약에 'id=숫자' 또는 AniList 도구 결과가 있으면 그 id를 사용합니다. 정말 알 수 없을 때만 null입니다.
-각 항목에 title_native(일본어 원제), title_english(공식 영문 제목)를 가능하면 채우세요. 비어 있으면 id 검색 시 일본어→영문→표시 title 순으로 보강합니다."""
+title_korean_official에는 국내 정식 한국어 명칭(정발·OTT·극장판 등 공식적으로 쓰이는 한글 제목)을 넣으세요.
+title_native(일본어 원제), title_english(공식 영문)를 가능하면 채우세요. UI에서 '한글명 (원제 / 영문)' 형태로 보여줍니다. id 검색 보강은 일본어→영문→한글명 순입니다."""
 
     human = f"""사용자 프로필(JSON): {json.dumps(state['user_profile'], ensure_ascii=False)}
 
@@ -284,7 +287,7 @@ rationale_ko에는 주요 반전·결말 등 스포일러를 쓰지 마세요.
         d = it.model_dump()
         recs.append(
             {
-                "title": d["title"],
+                "title_korean_official": d.get("title_korean_official") or d.get("title") or "",
                 "rationale_ko": d["rationale_ko"],
                 "anilist_id": d.get("anilist_id"),
                 "title_native": d.get("title_native"),
@@ -294,7 +297,7 @@ rationale_ko에는 주요 반전·결말 등 스포일러를 쓰지 마세요.
     while len(recs) < n:
         recs.append(
             {
-                "title": "추천 보강 필요",
+                "title_korean_official": "추천 보강 필요",
                 "rationale_ko": "조사 결과가 부족하여 수동으로 후보를 늘려 주세요.",
                 "anilist_id": None,
                 "title_native": None,
