@@ -11,6 +11,8 @@ import sys
 
 from dotenv import load_dotenv
 
+from secrets_util import get_openai_api_key
+
 # 프로젝트 루트에서 모듈 로드
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
@@ -19,15 +21,43 @@ if _ROOT not in sys.path:
 import pandas as pd
 import streamlit as st
 
+from anilist_client import fetch_cover_urls_by_ids
 from anime_graph import react_summary_text, run_pipeline
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cached_poster_urls(ids_tuple: tuple[int, ...]) -> dict[int, str]:
+    """AniList 배치 조회 결과 캐시(동일 id 재방문 시 API 호출 감소)."""
+    if not ids_tuple:
+        return {}
+    return fetch_cover_urls_by_ids(list(ids_tuple))
+
+
+def _collect_anilist_ids(recs: list[dict]) -> tuple[int, ...]:
+    out: list[int] = []
+    for r in recs:
+        aid = r.get("anilist_id")
+        if aid is None:
+            continue
+        try:
+            i = int(aid)
+            if i > 0:
+                out.append(i)
+        except (TypeError, ValueError):
+            continue
+    return tuple(sorted(set(out)))
+
+
 def _render_recommendation_cards(recs: list[dict]) -> None:
-    """2열 그리드 + 테두리 컨테이너로 카드형 표시."""
+    """2열 그리드 + 포스터(AniList cover) + 테두리 컨테이너."""
     n = len(recs)
     if n == 0:
         st.warning("추천 항목이 없습니다.")
         return
+
+    id_tuple = _collect_anilist_ids(recs)
+    url_map = _cached_poster_urls(id_tuple) if id_tuple else {}
+
     cols_per_row = 2
     for row_start in range(0, n, cols_per_row):
         chunk = recs[row_start : row_start + cols_per_row]
@@ -36,15 +66,33 @@ def _render_recommendation_cards(recs: list[dict]) -> None:
             with col:
                 with st.container(border=True):
                     title = r.get("title") or "(제목 없음)"
-                    st.markdown(f"**{idx}. {title}**")
-                    st.write(r.get("rationale_ko", ""))
                     aid = r.get("anilist_id")
-                    if aid:
-                        st.link_button(
-                            "AniList에서 보기",
-                            f"https://anilist.co/anime/{aid}",
-                            use_container_width=True,
-                        )
+                    poster: str | None = None
+                    if aid is not None:
+                        try:
+                            poster = url_map.get(int(aid))
+                        except (TypeError, ValueError):
+                            poster = None
+
+                    img_col, txt_col = st.columns([1, 1.35])
+                    with img_col:
+                        if poster:
+                            st.image(poster, use_container_width=True)
+                        else:
+                            st.caption(
+                                "포스터 없음 (AniList id 없음)"
+                                if aid is None
+                                else "포스터 없음 (조회 실패)"
+                            )
+                    with txt_col:
+                        st.markdown(f"**{idx}. {title}**")
+                        st.write(r.get("rationale_ko", ""))
+                        if aid:
+                            st.link_button(
+                                "AniList에서 보기",
+                                f"https://anilist.co/anime/{aid}",
+                                use_container_width=True,
+                            )
 
 
 def main() -> None:
@@ -53,8 +101,11 @@ def main() -> None:
     st.title("개인화 애니메이션 추천")
     st.caption("LangGraph ReAct · 장르·분위기 분기 · 기본 3작 + 옵션 0~2작 · gpt-5-mini")
 
-    if not os.getenv("OPENAI_API_KEY"):
-        st.error("`.env`에 `OPENAI_API_KEY`를 설정하세요. (배포 시 Streamlit Secrets)")
+    if not get_openai_api_key():
+        st.error(
+            "OPENAI_API_KEY가 없습니다. 로컬은 프로젝트 루트 `.env`, "
+            "Streamlit Cloud는 **Settings → Secrets**에 `OPENAI_API_KEY`를 설정하세요."
+        )
         st.stop()
 
     with st.sidebar:

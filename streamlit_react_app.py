@@ -13,6 +13,8 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
+
+from secrets_util import get_openai_api_key, require_openai_api_key
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -85,9 +87,7 @@ class ReActChatSession:
 
     def __init__(self) -> None:
         load_dotenv()
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY가 설정되어 있지 않습니다 (.env 확인).")
-        self._llm = ChatOpenAI(model="gpt-5-mini")
+        self._llm = ChatOpenAI(model="gpt-5-mini", api_key=require_openai_api_key())
         tools = [
             translate_line,
             get_weather_mock,
@@ -126,7 +126,7 @@ def _extract_final_text(messages: list) -> str:
 def run_smoke_test() -> None:
     """최소 3턴 대화로 에이전트·도구·메모리를 점검합니다 (API 호출 발생)."""
     load_dotenv()
-    if not os.getenv("OPENAI_API_KEY"):
+    if not get_openai_api_key():
         print("SKIP: OPENAI_API_KEY 없음")
         sys.exit(0)
     session = ReActChatSession()

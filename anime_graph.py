@@ -5,10 +5,8 @@ seed.yaml v1.1 — LangGraph: parse_profile → 장르·분기 3갈래 → ReAct
 from __future__ import annotations
 
 import json
-import os
 from typing import Literal, TypedDict
 
-from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
@@ -16,6 +14,7 @@ from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
 from anime_tools import ANIME_TOOLS
+from secrets_util import require_openai_api_key
 
 
 class RecItem(BaseModel):
@@ -177,10 +176,7 @@ def _last_substantial_ai_text(messages: list) -> str:
 
 
 def _make_react_agent():
-    load_dotenv()
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY가 없습니다 (.env).")
-    llm = ChatOpenAI(model="gpt-5-mini")
+    llm = ChatOpenAI(model="gpt-5-mini", api_key=require_openai_api_key())
     return create_react_agent(llm, ANIME_TOOLS, prompt=REACT_SYSTEM, version="v2")
 
 
@@ -221,10 +217,9 @@ def run_react(state: GraphState) -> GraphState:
 
 
 def finalize(state: GraphState) -> GraphState:
-    load_dotenv()
     n = state["user_profile"]["total_count"]
     react_text = _last_substantial_ai_text(state.get("react_messages") or [])
-    llm = ChatOpenAI(model="gpt-5-mini")
+    llm = ChatOpenAI(model="gpt-5-mini", api_key=require_openai_api_key())
     structured = llm.with_structured_output(RecOutput)
 
     sys_msg = f"""당신은 최종 추천 편집자입니다.

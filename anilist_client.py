@@ -30,6 +30,11 @@ query ($search: String, $page: Int, $perPage: Int) {
         english
         native
       }
+      coverImage {
+        large
+        medium
+        extraLarge
+      }
       averageScore
       genres
       episodes
@@ -58,6 +63,26 @@ query ($id: Int) {
     format
     status
     siteUrl
+    coverImage {
+      large
+      medium
+      extraLarge
+    }
+  }
+}
+"""
+
+QUERY_COVERS_BY_IDS = """
+query ($ids: [Int], $perPage: Int) {
+  Page(page: 1, perPage: $perPage) {
+    media(id_in: $ids, type: ANIME) {
+      id
+      coverImage {
+        large
+        medium
+        extraLarge
+      }
+    }
   }
 }
 """
@@ -106,6 +131,45 @@ def search_anime(
         {"search": s, "page": page, "perPage": per_page},
     )
     return data.get("data") or {}
+
+
+def _pick_cover_url(cover: dict[str, Any] | None) -> str | None:
+    if not cover:
+        return None
+    return (
+        cover.get("extraLarge")
+        or cover.get("large")
+        or cover.get("medium")
+        or None
+    )
+
+
+def fetch_cover_urls_by_ids(media_ids: list[int]) -> dict[int, str]:
+    """
+    AniList id 여러 개에 대해 포스터 이미지 URL을 한 번에 조회.
+    실패 시 빈 dict 또는 부분 결과를 반환한다.
+    """
+    ids = sorted({int(i) for i in media_ids if i and int(i) > 0})
+    if not ids:
+        return {}
+    per_page = max(len(ids), 10)
+    try:
+        data = _graphql(
+            QUERY_COVERS_BY_IDS,
+            {"ids": ids, "perPage": per_page},
+        )
+    except (AniListError, httpx.HTTPError):
+        return {}
+
+    page = (data.get("data") or {}).get("Page") or {}
+    media_list = page.get("media") or []
+    out: dict[int, str] = {}
+    for m in media_list:
+        mid = m.get("id")
+        url = _pick_cover_url(m.get("coverImage"))
+        if mid is not None and url:
+            out[int(mid)] = url
+    return out
 
 
 def get_anime_by_id(media_id: int) -> dict[str, Any]:
