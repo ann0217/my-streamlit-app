@@ -169,6 +169,35 @@ def search_first_media_id(query: str) -> int | None:
         return None
 
 
+def _norm_q(s: str) -> str:
+    return " ".join((s or "").strip().split())
+
+
+def search_media_id_by_title_candidates(
+    *,
+    title: str = "",
+    title_native: str | None = None,
+    title_english: str | None = None,
+) -> int | None:
+    """
+    일본어 원제 → 공식 영문 → 표시용 title 순으로 AniList 검색을 각각 시도, 첫 성공 id 반환.
+    동일 문구(대소문자 무시)는 한 번만 검색한다.
+    """
+    seen_lower: set[str] = set()
+    for raw in (title_native, title_english, title):
+        q = _norm_q(raw or "")
+        if len(q) < 2:
+            continue
+        key = q.casefold()
+        if key in seen_lower:
+            continue
+        seen_lower.add(key)
+        mid = search_first_media_id(q)
+        if mid is not None:
+            return mid
+    return None
+
+
 def fetch_cover_urls_by_ids(media_ids: list[int]) -> dict[int, str]:
     """
     AniList id 여러 개에 대해 포스터 이미지 URL을 한 번에 조회.

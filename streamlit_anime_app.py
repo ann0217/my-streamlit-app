@@ -21,7 +21,7 @@ if _ROOT not in sys.path:
 import pandas as pd
 import streamlit as st
 
-from anilist_client import fetch_cover_urls_by_ids, search_first_media_id
+from anilist_client import fetch_cover_urls_by_ids, search_media_id_by_title_candidates
 from anime_graph import react_summary_text, run_pipeline
 
 
@@ -34,12 +34,14 @@ def _cached_poster_urls(ids_tuple: tuple[int, ...]) -> dict[int, str]:
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def _cached_search_first_id(title: str) -> int | None:
-    """제목 → 첫 검색 결과 id (그래프에서 id를 못 채운 경우 UI 폴백)."""
-    t = (title or "").strip()
-    if len(t) < 2:
-        return None
-    return search_first_media_id(t)
+def _cached_resolve_media_id(key: tuple[str, str, str]) -> int | None:
+    """일본어 원제 → 영문 → 표시 title 순 AniList 검색 (그래프 폴백과 동일 규칙)."""
+    title, native, english = key
+    return search_media_id_by_title_candidates(
+        title=title,
+        title_native=native or None,
+        title_english=english or None,
+    )
 
 
 def _effective_anilist_id(rec: dict) -> int | None:
@@ -52,7 +54,13 @@ def _effective_anilist_id(rec: dict) -> int | None:
                 return i
         except (TypeError, ValueError):
             pass
-    return _cached_search_first_id(rec.get("title") or "")
+    return _cached_resolve_media_id(
+        (
+            rec.get("title") or "",
+            rec.get("title_native") or "",
+            rec.get("title_english") or "",
+        )
+    )
 
 
 def _collect_anilist_ids(recs: list[dict]) -> tuple[int, ...]:
